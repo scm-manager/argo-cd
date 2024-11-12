@@ -14,7 +14,7 @@ import (
 	"github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 )
 
-func scmManagerMockHandler(t *testing.T) func(http.ResponseWriter, *http.Request) {
+func scmManagerMockHandler(t *testing.T, emptyRepo bool) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.RequestURI {
@@ -43,19 +43,39 @@ func scmManagerMockHandler(t *testing.T) func(http.ResponseWriter, *http.Request
 				t.Fail()
 			}
 		case "/api/v2/repositories/test-argocd/pr-test/branches/":
+			if emptyRepo {
+				_, err := io.WriteString(w, `{
+					"_embedded": {
+						"branches": []
+					}
+				}`)
+				if err != nil {
+					t.Fail()
+				}
+			} else {
+				_, err := io.WriteString(w, `{
+					"_embedded": {
+						"branches": [{
+								"name": "main",
+								"defaultBranch": true,
+								"revision": "72687815ccba81ef014a96201cc2e846a68789d8",
+								"stale": false,
+								"lastCommitDate": "2022-04-05T14:29:51-04:00",
+								"lastCommitter": {
+									"name": "Eduard Heimbuch",
+									"mail": "eduard.heimbuch@cloudogu.com"
+								}
+						}]
+					}
+				}`)
+				if err != nil {
+					t.Fail()
+				}
+			}
+		case "/api/v2/repositories/test-argocd/empty-test/branches/":
 			_, err := io.WriteString(w, `{
 				"_embedded": {
-				    "branches": [{
-							"name": "main",
-							"defaultBranch": true,
-							"revision": "72687815ccba81ef014a96201cc2e846a68789d8",
-							"stale": false,
-							"lastCommitDate": "2022-04-05T14:29:51-04:00",
-							"lastCommitter": {
-								"name": "Eduard Heimbuch",
-								"mail": "eduard.heimbuch@cloudogu.com"
-							}
-				    }]
+				    "branches": []
 				}
 			}`)
 			if err != nil {
@@ -135,7 +155,7 @@ func TestScmManagerListRepos(t *testing.T) {
 		},
 	}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		scmManagerMockHandler(t)(w, r)
+		scmManagerMockHandler(t, false)(w, r)
 	}))
 	defer ts.Close()
 	for _, c := range cases {
@@ -164,9 +184,22 @@ func TestScmManagerListRepos(t *testing.T) {
 	}
 }
 
+func TestScmManagerListEmptyRepos(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		scmManagerMockHandler(t, true)(w, r)
+	}))
+	defer ts.Close()
+	t.Run("empty repository", func(t *testing.T) {
+		provider, _ := NewScmManagerProvider(context.Background(), "", ts.URL, false, false, "", nil)
+		rawRepos, err := ListRepos(context.Background(), provider, make([]v1alpha1.SCMProviderGeneratorFilter, 0), "https")
+		require.NoError(t, err)
+		assert.Empty(t, rawRepos)
+	})
+}
+
 func TestScmManagerHasPath(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		scmManagerMockHandler(t)(w, r)
+		scmManagerMockHandler(t, false)(w, r)
 	}))
 	defer ts.Close()
 	host, _ := NewScmManagerProvider(context.Background(), "", ts.URL, false, false, "", nil)

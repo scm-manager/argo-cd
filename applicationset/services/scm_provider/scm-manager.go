@@ -110,7 +110,11 @@ func (g *ScmManagerProvider) ListRepos(ctx context.Context, cloneProtocol string
 
 		defaultBranch, err := g.client.GetDefaultBranch(scmmRepo.Namespace, scmmRepo.Name)
 		if err != nil {
-			return nil, err
+			if errors.Is(err, scmm.ErrEmptyRepository) || errors.Is(err, scmm.ErrNoDefaultBranchFound) {
+				continue
+			} else {
+				return nil, err
+			}
 		}
 
 		repos = append(repos, &Repository{
