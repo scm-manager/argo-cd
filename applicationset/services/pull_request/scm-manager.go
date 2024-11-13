@@ -58,10 +58,12 @@ func (g *ScmManagerService) List(ctx context.Context) ([]*PullRequest, error) {
 			return nil, err
 		}
 		list = append(list, &PullRequest{
-			Number:  prId,
-			Branch:  pr.Source,
-			HeadSHA: changeset.Id,
-			Labels:  make([]string, 0),
+			Number:       prId,
+			Branch:       pr.Source,
+			HeadSHA:      changeset.Id,
+			TargetBranch: pr.Target,
+			Title:        pr.Title,
+			Labels:       pr.Labels,
 		})
 	}
 	return list, nil
