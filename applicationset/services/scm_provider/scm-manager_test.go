@@ -2,6 +2,7 @@ package scm_provider
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,91 +15,26 @@ import (
 	"github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 )
 
-func scmManagerMockHandler(t *testing.T, emptyRepo bool) func(http.ResponseWriter, *http.Request) {
+func scmManagerMockHandlerWithNormalRepository(t *testing.T) func(http.ResponseWriter, *http.Request) {
+	return scmManagerMockHandler(t, "pr-test")
+}
+
+func scmManagerMockHandlerWithEmptyRepository(t *testing.T) func(http.ResponseWriter, *http.Request) {
+	return scmManagerMockHandler(t, "empty")
+}
+
+func scmManagerMockHandler(t *testing.T, repositoryName string) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.RequestURI {
 		case "/api/v2/repositories?pageSize=9999&archived=true":
-			_, err := io.WriteString(w, `{
-		"page": 0,
-		"pageTotal": 1,
-		"_embedded": {
-			"repositories":	[{
-				"namespace": "test-argocd",
-				"name": "pr-test",
-				"type": "git",
-				"description": "test",
-				"contact": "eduard.heimbuch@cloudogu.com",
-				"archived": false,
-				"_links": {
-					"protocol": [
-						{ "name": "http", "href": "https://scm-manager.org/test-argocd/pr-test" },
-						{ "name": "ssh", "href": "git@scm-manager.org:test-argocd/pr-test.git" }
-					]
-				}
-			}]
-		}
-}`)
-			if err != nil {
-				t.Fail()
-			}
+			handleRepositoryOverviewRequest(repositoryName, w, t)
 		case "/api/v2/repositories/test-argocd/pr-test/branches/":
-			if emptyRepo {
-				_, err := io.WriteString(w, `{
-					"_embedded": {
-						"branches": []
-					}
-				}`)
-				if err != nil {
-					t.Fail()
-				}
-			} else {
-				_, err := io.WriteString(w, `{
-					"_embedded": {
-						"branches": [{
-								"name": "main",
-								"defaultBranch": true,
-								"revision": "72687815ccba81ef014a96201cc2e846a68789d8",
-								"stale": false,
-								"lastCommitDate": "2022-04-05T14:29:51-04:00",
-								"lastCommitter": {
-									"name": "Eduard Heimbuch",
-									"mail": "eduard.heimbuch@cloudogu.com"
-								}
-						}]
-					}
-				}`)
-				if err != nil {
-					t.Fail()
-				}
-			}
-		case "/api/v2/repositories/test-argocd/empty-test/branches/":
-			_, err := io.WriteString(w, `{
-				"_embedded": {
-				    "branches": []
-				}
-			}`)
-			if err != nil {
-				t.Fail()
-			}
-		case "/api/v2/repositories/test-argocd/pr-test":
-			_, err := io.WriteString(w, `{
-				"namespace": "test-argocd",
-				"name": "pr-test",
-				"type": "git",
-				"description": "test",
-				"contact": "eduard.heimbuch@cloudogu.com",
-				"archived": false,
-				"_links": {
-					"protocol": [
-						{ "name": "ssh", "href": "git@scm-manager.org:test-argocd/pr-test.git" },
-						{ "name": "http", "href": "https://scm-manager.org/test-argocd/pr-test" }
-					]
-				}
-			}`)
-			if err != nil {
-				t.Fail()
-			}
+			handleBranchesRequestWithExistingBranches(w, t)
+		case "/api/v2/repositories/test-argocd/empty/branches/":
+			handleBranchesRequestWithoutBranches(w, t)
+		case fmt.Sprintf("/api/v2/repositories/test-argocd/%s", repositoryName):
+			handleRepositoryRequest(w, t)
 		case "/api/v2/repositories/test-argocd/pr-test/content/master/README.md?ref=master":
 			_, err := io.WriteString(w, `"my readme test"`)
 			require.NoError(t, err)
@@ -113,6 +49,84 @@ func scmManagerMockHandler(t *testing.T, emptyRepo bool) func(http.ResponseWrite
 				t.Fail()
 			}
 		}
+	}
+}
+
+func handleRepositoryRequest(w http.ResponseWriter, t *testing.T) {
+	_, err := io.WriteString(w, `{
+				"namespace": "test-argocd",
+				"name": "pr-test",
+				"type": "git",
+				"description": "test",
+				"contact": "eduard.heimbuch@cloudogu.com",
+				"archived": false,
+				"_links": {
+					"protocol": [
+						{ "name": "ssh", "href": "git@scm-manager.org:test-argocd/pr-test.git" },
+						{ "name": "http", "href": "https://scm-manager.org/test-argocd/pr-test" }
+					]
+				}
+			}`)
+	if err != nil {
+		t.Fail()
+	}
+}
+
+func handleBranchesRequestWithoutBranches(w http.ResponseWriter, t *testing.T) {
+	_, err := io.WriteString(w, `{
+					"_embedded": {
+						"branches": []
+					}
+				}`)
+	if err != nil {
+		t.Fail()
+	}
+}
+
+func handleBranchesRequestWithExistingBranches(w http.ResponseWriter, t *testing.T) {
+	_, err := io.WriteString(w, `{
+					"_embedded": {
+						"branches": [{
+								"name": "main",
+								"defaultBranch": true,
+								"revision": "72687815ccba81ef014a96201cc2e846a68789d8",
+								"stale": false,
+								"lastCommitDate": "2022-04-05T14:29:51-04:00",
+								"lastCommitter": {
+									"name": "Eduard Heimbuch",
+									"mail": "eduard.heimbuch@cloudogu.com"
+								}
+						}]
+					}
+				}`)
+	if err != nil {
+		t.Fail()
+	}
+}
+
+func handleRepositoryOverviewRequest(repositoryName string, w http.ResponseWriter, t *testing.T) {
+	_, err := io.WriteString(w, fmt.Sprintf(`{
+			"page": 0,
+			"pageTotal": 1,
+			"_embedded": {
+				"repositories":	[{
+					"namespace": "test-argocd",
+					"name": "%s",
+					"type": "git",
+					"description": "test",
+					"contact": "eduard.heimbuch@cloudogu.com",
+					"archived": false,
+					"_links": {
+						"protocol": [
+							{ "name": "http", "href": "https://scm-manager.org/test-argocd/%s" },
+							{ "name": "ssh", "href": "git@scm-manager.org:test-argocd/%s.git" }
+						]
+					}
+				}]
+			}
+		}`, repositoryName, repositoryName, repositoryName))
+	if err != nil {
+		t.Fail()
 	}
 }
 
@@ -155,7 +169,7 @@ func TestScmManagerListRepos(t *testing.T) {
 		},
 	}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		scmManagerMockHandler(t, false)(w, r)
+		scmManagerMockHandlerWithNormalRepository(t)(w, r)
 	}))
 	defer ts.Close()
 	for _, c := range cases {
@@ -186,7 +200,7 @@ func TestScmManagerListRepos(t *testing.T) {
 
 func TestScmManagerListEmptyRepos(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		scmManagerMockHandler(t, true)(w, r)
+		scmManagerMockHandlerWithEmptyRepository(t)(w, r)
 	}))
 	defer ts.Close()
 	t.Run("empty repository", func(t *testing.T) {
@@ -199,7 +213,7 @@ func TestScmManagerListEmptyRepos(t *testing.T) {
 
 func TestScmManagerHasPath(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		scmManagerMockHandler(t, false)(w, r)
+		scmManagerMockHandlerWithNormalRepository(t)(w, r)
 	}))
 	defer ts.Close()
 	host, _ := NewScmManagerProvider(context.Background(), "", ts.URL, false, false, "", nil)
